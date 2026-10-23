@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Denmark Elements Pavilion — Dynamic Spatial Quadtree Matrix</title>
+<style>
+  :root {
+    --bg: #000000; --ink: #e9edf0; --dim: #a4b1bd;
+    --red: #ff6b58; --teal: #6fd6ce;
+    --earth: #d36bd4; --water: #54c9e8; --fire: #ff6b58; --air: #72c9a5;
+    --font: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --shadow: 0 1px 3px rgba(0,0,0,.95), 0 0 8px rgba(0,0,0,.8);
+  }
+  * { box-sizing: border-box; border: none !important; outline: none !important; box-shadow: none !important; }
+  html, body { margin: 0; height: 100%; background: #000000; color: var(--ink); font-family: var(--font); overflow: hidden; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; z-index: 1; touch-action: none; }
+  canvas.hover { cursor: pointer; }
+  canvas.dragging { cursor: grabbing; }
+
+  /* Loading hairline */
+  #prog { position: fixed; top: 0; left: 0; height: 2px; width: 0; background: var(--teal); z-index: 50; transition: width .25s ease, opacity .6s ease .3s; }
+
+  /* Soft edge scrims so the filter lists stay readable on top of the full-bleed image matrix */
+  .scrim { position: fixed; top: 0; bottom: 0; width: 290px; z-index: 2; pointer-events: none; }
+  .scrim.l { left: 0;  background: linear-gradient(to right, rgba(0,0,0,.82) 0%, rgba(0,0,0,.6) 55%, rgba(0,0,0,0)); }
+  .scrim.r { right: 0; background: linear-gradient(to left,  rgba(0,0,0,.82) 0%, rgba(0,0,0,.6) 55%, rgba(0,0,0,0)); }
+
+  .tl { position: fixed; top: 18px; left: 24px; font-size: 13px; color: #c3d0d8; max-width: 40vw; z-index: 3; pointer-events: none; text-shadow: var(--shadow); }
+  .tl b { color: var(--ink); font-weight: 500; }
+
+  /* Side-by-side Frameless Filter Lists */
+  .left-lists { 
+    position: fixed; top: 60px; bottom: 70px; left: 24px; 
+    display: flex; flex-direction: row; gap: 30px; z-index: 3; 
+    overflow-y: auto; scrollbar-width: none; align-items: flex-start;
+  }
+  .left-lists::-webkit-scrollbar, .right-lists::-webkit-scrollbar { display: none; }
+  .right-lists { position: fixed; top: 60px; bottom: 70px; right: 24px; z-index: 3; overflow-y: auto; scrollbar-width: none; }
+  
+  .list { width: 210px; flex-shrink: 0; position: relative; background: transparent; text-shadow: var(--shadow); }
+  .list h3 { 
+    font-family: var(--font); font-size: 15px; font-weight: 600; color: var(--ink); 
+    margin: 0 0 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center;
+    padding-bottom: 6px; transition: color 0.2s;
+  }
+  .list h3:hover { color: var(--teal); }
+  
+  .arrow-icon { width: 16px; height: 16px; transition: transform 0.3s; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .collapsed > h3 .arrow-icon, 
+  .collapsed > .sub-header .arrow-icon { transform: rotate(-90deg); }
+  
+  .list-content { display: flex; flex-direction: column; gap: 4px; }
+  .list.collapsed .list-content { display: none; }
+  
+  .sub-header { 
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; 
+    color: #c3d0d8; margin: 12px 0 4px; opacity: 0.9; cursor: pointer; 
+    display: flex; justify-content: space-between; align-items: center; transition: color 0.2s;
+  }
+  .sub-header:hover { color: var(--teal); }
+  .sub-header .arrow-icon { width: 12px; height: 12px; }
+
+  .sub-group.collapsed .sub-items { display: none; }
+  
+  .kw { 
+    cursor: pointer; color: var(--ink); font-size: 12px; opacity: .8; 
+    display: flex; justify-content: space-between; background: transparent; padding: 3px 0; width: 100%; text-align: left; 
+    transition: opacity 0.2s, color 0.2s; text-shadow: var(--shadow);
+  }
+  .kw:hover, .kw:focus-visible { opacity: 1; color: var(--teal); }
+  .kw.on { color: var(--kw-color, var(--teal)); opacity: 1; font-weight: 600; }
+  .kw i { font-style: normal; color: #9db0bc; font-size: 11px; }
+
+  /* Bottom Controls Bar */
+  .bar { position: fixed; left: 24px; right: 24px; bottom: 18px; display: flex; gap: 12px; align-items: center; justify-content: center; flex-wrap: wrap; z-index: 5; }
+  .bar button { background: transparent; color: var(--ink); padding: 5px 8px; font: 12px var(--font); cursor: pointer; text-shadow: var(--shadow); }
+  .bar button:hover { color: var(--teal); }
+  
+
+  /* Mode Switcher Buttons Group */
+  .mode-group { display: flex; gap: 6px; }
+  .mode-btn { background: transparent !important; color: #c3d0d8; padding: 4px 8px; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; cursor: pointer; transition: color 0.2s; text-shadow: var(--shadow) !important; }
+  .mode-btn:hover { color: #fff; }
+  .mode-btn.active { background: transparent !important; color: var(--teal); font-weight: 600; }
+
+.ctrl-btn { background: transparent !important; padding: 4px 10px !important; font-size: 11px !important; text-transform: uppercase; letter-spacing: 0.04em; color: #c3d0d8 !important; cursor: pointer; text-shadow: var(--shadow) !important; }
+.ctrl-btn:hover { color: #fff !important; }
+.ctrl-btn.active { color: var(--teal) !important; background: transparent !important; }
+
+  .ctrl-btn { background: rgba(20,25,30,0.85) !important; backdrop-filter: blur(8px); padding: 4px 10px !important; font-size: 11px !important; text-transform: uppercase; letter-spacing: 0.04em; color: #93a7b3 !important; border-radius: 3px; cursor: pointer; text-shadow: none !important; }
+  .ctrl-btn:hover { color: #fff !important; }
+  .ctrl-btn.active { color: var(--teal) !important; background: rgba(111,214,206,0.2) !important; }
+
+  /* Blur Focus: soft depth-of-field. The area around the cursor stays sharp, the periphery melts into a gentle blur */
+  .blur-curtain {
+    --mx: 50%; --my: 50%;
+    position: fixed; inset: 0; pointer-events: none; z-index: 2;
+    opacity: 0; visibility: hidden; transition: opacity .45s ease, visibility .45s;
+    backdrop-filter: blur(3px) saturate(.92); -webkit-backdrop-filter: blur(3px) saturate(.92);
+    background: radial-gradient(circle at var(--mx) var(--my), transparent 0, transparent 160px, rgba(0,0,0,.22) 560px);
+    -webkit-mask-image: radial-gradient(circle at var(--mx) var(--my), transparent 0, transparent 140px, #000 400px);
+            mask-image: radial-gradient(circle at var(--mx) var(--my), transparent 0, transparent 140px, #000 400px);
+  }
+  .blur-curtain.active { opacity: 1; visibility: visible; }
+
+  /* Full-Screen Modal */
+  .full-modal {
+    position: fixed; inset: 0; z-index: 100; display: none;
+    background: rgba(0, 0, 0, 0.78);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    flex-direction: column; align-items: center; justify-content: center;
+    padding: 40px; cursor: pointer; opacity: 0; transition: opacity 0.3s ease;
+  }
+  .full-modal.show { display: flex; opacity: 1; }
+  .full-modal-content {
+    max-width: 900px; width: 100%; max-height: 85vh; display: flex; flex-direction: column;
+    align-items: center; text-align: center; cursor: default; overflow-y: auto; scrollbar-width: none;
+  }
+  .full-modal-content::-webkit-scrollbar { display: none; }
+  .full-modal img {
+    max-width: 100%; max-height: 55vh; object-fit: contain; margin-bottom: 24px;
+    filter: drop-shadow(0 12px 32px rgba(0,0,0,0.8));
+  }
+  .full-modal h2 { margin: 0 0 8px; font-size: 24px; font-weight: 500; color: #fff; }
+  .full-modal .meta { font-size: 13px; color: var(--teal); margin-bottom: 12px; letter-spacing: 0.05em; text-transform: uppercase; }
+  .full-modal .desc { font-size: 14px; line-height: 1.6; color: #c7d1d7; max-width: 680px; margin-bottom: 16px; }
+  .full-modal .tags { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-bottom: 16px; }
+  .full-modal .tags span {
+    background: rgba(255,255,255,0.1); padding: 4px 12px; border-radius: 999px;
+    font-size: 12px; color: #fff; cursor: pointer; transition: background 0.2s;
+  }
+  .full-modal .tags span:hover { background: var(--teal); color: #000; }
+  .full-modal .close-btn {
+    position: absolute; top: 24px; right: 32px; background: transparent; color: #fff;
+    font-size: 32px; cursor: pointer; opacity: 0.7; transition: opacity 0.2s;
+  }
+  .full-modal .close-btn:hover { opacity: 1; color: var(--teal); }
+
+  /* Moodboard: closed by default, toggled from the bottom bar. No frame, centred, large. */
+  #moodboard { position: fixed; z-index: 6; left: 50%; bottom: 64px; transform: translateX(-50%); width: min(1100px, 94vw); display: none; background: transparent; }
+  #moodboard.open { display: block; }
+  .board-head { display: flex; justify-content: center; align-items: center; gap: 18px; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: #eef3f6; margin-bottom: 12px; text-shadow: var(--shadow); }
+  .board-head button { color: #eef3f6; background: transparent; cursor: pointer; font: 11px var(--font); letter-spacing: .14em; text-transform: uppercase; text-shadow: var(--shadow); }
+  .board-head button:hover { color: var(--teal); }
+  #boardEmpty { font-size: 13px; color: #c3d0d8; padding: 20px 0 14px; text-align: center; text-shadow: var(--shadow); }
+
+  #boardGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: clamp(130px, 21vh, 230px); gap: 10px; }
+  .board-tile { min-width: 0; min-height: 0; position: relative; overflow: hidden; background: transparent; }
+  .board-tile img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .board-tile::after { content: ""; position: absolute; inset: 55% 0 0; background: linear-gradient(transparent, #000c); pointer-events: none; }
+  /* labels are plain text now – no chips, no circles */
+  .board-tile .tile-badge { position: absolute; z-index: 2; top: 8px; left: 10px; color: var(--teal); font-size: 11px; font-weight: 600; letter-spacing: .04em; max-width: 80%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; text-shadow: var(--shadow); }
+  .board-tile .tile-title { position: absolute; z-index: 1; left: 10px; right: 34px; bottom: 9px; font-size: 13px; line-height: 1.25; color: #fff; text-shadow: var(--shadow); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; }
+  .board-tile .remove { position: absolute; z-index: 2; top: 4px; right: 8px; background: transparent; color: #fff; cursor: pointer; font-size: 22px; line-height: 1; text-shadow: var(--shadow); }
+  .board-tile .remove:hover { color: var(--teal); }
+
+  #hoverPreview { 
+    position: fixed; z-index: 20; display: none; pointer-events: none;
+    background: #111; box-shadow: 0 8px 24px rgba(0,0,0,0.9); flex-direction: column; width: 240px; 
+  }
+  #hoverPreview.show { display: flex; }
+  #hoverPreview .pv-img { position: relative; width: 240px; height: 160px; overflow: hidden; background: #111; }
+  #pvSprite { position: absolute; inset: 0; background-repeat: no-repeat; }
+  #hoverImg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity .2s; }
+  #hoverImg.ready { opacity: 1; }
+  #hoverPreview .info { padding: 8px; background: rgba(0,0,0,0.9); }
+  #hoverPreview span { font-size: 12px; font-weight: 600; color: #fff; line-height: 1.3; display: block; }
+
+  @media (max-width: 900px) { .left-lists, .right-lists, .scrim { display: none; } .tl { max-width: 70vw; } }
+</style>
+</head>
+<body>
+<div id="prog"></div>
+<canvas id="c" aria-label="Denmark Architecture Full Screen Quadtree Canvas"></canvas>
+<div class="blur-curtain" id="blurCurtain"></div>
+<div class="scrim l"></div><div class="scrim r"></div>
+
+<div class="tl" id="tl"><b>Constellation dataset</b><br><span id="count">Loading…</span></div>
+
+<div class="left-lists">
+  <nav class="list" id="left" aria-label="Typologies"></nav>
+</div>
+<div class="right-lists">
+  <nav class="list" id="right" aria-label="Materials"></nav>
+</div>
+
+<div class="bar" id="bar">
+  <div class="mode-group" aria-label="Quadtree Sorting Mode">
+    <button class="mode-btn active" data-mode="category">Categories</button>
+    <button class="mode-btn" data-mode="scale">Scale</button>
+    <button class="mode-btn" data-mode="luminosity">Luminosity</button>
+    <button class="mode-btn" data-mode="hue">Hue</button>
+    <button class="mode-btn" data-mode="redToBlue">Red-Blue</button>
+    <button class="mode-btn" data-mode="blueToGreen">Blue-Green</button>
+    <button class="mode-btn" data-mode="random">Random</button>
+  </div>
+
+  <button class="ctrl-btn" id="toggleNames" aria-pressed="false">Names: Off</button>
+  <button class="ctrl-btn" id="toggleBoardBtn" aria-pressed="false">Moodboard</button>
+  <button class="ctrl-btn" id="toggleBlur">Blur Focus</button>
+  <button class="ctrl-btn" id="toggleVibrancy">Vibrancy</button>
+
+  <button id="reset">Reset</button>
+</div>
+
+<aside id="moodboard" aria-label="Moodboard">
+  <div class="board-head">
+    <span>Moodboard</span>
+    <div><button id="clearBoard" type="button">Clear</button><button id="closeBoard" type="button">Close</button></div>
+  </div>
+  <div id="boardEmpty">Click any image to pin it here</div>
+  <div id="boardGrid"></div>
+</aside>
+
+<div id="hoverPreview">
+  <div class="pv-img"><div id="pvSprite"></div><img id="hoverImg" alt=""></div>
+  <div class="info"><span id="hoverTitle"></span></div>
+</div>
+
+<div class="full-modal" id="fullModal">
+  <button class="close-btn" id="modalClose">&times;</button>
+  <div class="full-modal-content" id="modalContent">
+    <img id="mImg" alt="">
+    <div class="meta" id="mMeta"></div>
+    <h2 id="mTitle"></h2>
+    <div class="tags" id="mTags"></div>
+    <div class="desc" id="mDesc"></div>
+    <div id="mSrc" style="font-size: 12px; color: #748691;"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ───────────────────────────── config ───────────────────────────── */
+const COLORS = { Earth: "#d36bd4", Water: "#54c9e8", Fire: "#ff6b58", Air: "#72c9a5" };
+const ELEMENTS = Object.keys(COLORS);
+const DATA_URL = "danish_architecture_dataset.json";
+const SHEET_URL = i => `spritesheet_${i}.jpg`;   // produced by sprite.py (2048px atlas, 128px tiles)
+const ATLAS = 2048;
+const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace';
+const COLOR_MODES = new Set(["luminosity", "hue", "redToBlue", "blueToGreen"]);
+
+/* ───────────────────────────── state ───────────────────────────── */
+const canvas = document.getElementById("c"), ctx = canvas.getContext("2d");
+let W = innerWidth, H = innerHeight, DPR = Math.min(devicePixelRatio || 1, 2);
+const T = { x: 0, y: 0, k: 1 };                  // view transform (screen = world * k + (x,y))
+let items = [], nodes = [], hover = null, selected = null;
+const pinned = [];
+let boardOpen = false;
+let activeCategoryName = "General";
+let activeSortMode = "category";
+let blurFocusActive = false, vibrancyBoost = false, showNames = false;
+let randSeed = 1;
+
+const sheets = [];                               // {img, ok}
+let sheetTotal = 0, sheetDone = 0, featuresReady = false, featuresFailed = false;
+
+const filter = { element: null, kw: new Set() };
+
+/* ───────────────────────────── rAF scheduling ───────────────────────────── */
+let raf = 0, tween = null, layoutAnim = null;
+function draw() { if (!raf) raf = requestAnimationFrame(frame); }
+const easeOut = p => 1 - Math.pow(1 - p, 3);
+const easeInOut = p => p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+
+function frame(now) {
+  raf = 0;
+  let busy = false;
+  if (tween) {
+    const p = Math.min(1, (now - tween.t0) / tween.dur), e = easeOut(p);
+    T.x = tween.f.x + (tween.t.x - tween.f.x) * e;
+    T.y = tween.f.y + (tween.t.y - tween.f.y) * e;
+    T.k = tween.f.k + (tween.t.k - tween.f.k) * e;
+    if (p >= 1) tween = null; else busy = true;
+  }
+  if (layoutAnim) {
+    const p = Math.min(1, (now - layoutAnim.t0) / layoutAnim.dur), e = easeInOut(p);
+    for (const d of items) {
+      d.x = d.sx + (d.tx - d.sx) * e; d.y = d.sy + (d.ty - d.sy) * e;
+      d.w = d.sw + (d.tw - d.sw) * e; d.h = d.sh + (d.th - d.sh) * e;
+    }
+    if (p >= 1) layoutAnim = null; else busy = true;
+  }
+  render();
+  if (busy) draw();
+}
+function animateTo(t, dur = 750) { tween = { f: { x: T.x, y: T.y, k: T.k }, t, t0: performance.now(), dur }; draw(); }
+
+/* ───────────────────────────── loading ───────────────────────────── */
+(async function load() {
+  setProgress(0.05);
+  let data = [];
+  try {
+    const r = await fetch(DATA_URL);
+    if (r.ok) data = await r.json();
+  } catch (e) {}
+  if (!data.length) { document.getElementById("count").textContent = "No dataset found. Serve this folder over HTTP."; return; }
+  setProgress(0.15);
+  build(normalize(data));
+  loadSheets();
+})();
+
+function setProgress(p) {
+  const el = document.getElementById("prog");
+  el.style.width = (p * 100) + "%";
+  if (p >= 1) el.style.opacity = 0;
+}
+
+function normalize(raw) {
+  const seen = new Set();
+  const out = [];
+  raw.forEach((d, i) => {
+    const local = d.local_image_path || d.directory || "";
+    const remote = d.image_url || "";
+    if (/\.(pdf|djvu)/i.test(local) || /\.(pdf|djvu)/i.test(remote)) return;
+    const id = d.id || d.name || "i" + i;
+    if (seen.has(id)) return; seen.add(id);
+    const title = d.title || d.name || "Untitled";
+    const mp = (d.width && d.height) ? d.width * d.height : 0;
+    out.push({
+      id, title,
+      label: title.replace(/\.(jpe?g|png|gif|tiff?|webp|svg)$/i, "").replace(/_/g, " ").trim(),
+      element: ELEMENTS.includes(d.element) ? d.element : ELEMENTS[i % 4],
+      typology: (d.typology || d.typology_category || "Architectural Space").trim(),
+      materials: Array.isArray(d.materials) ? d.materials.filter(m => typeof m === "string") : [(d.material || "Brick")],
+      era: d.era || "", desc: d.description || "",
+      local, remote, img: local || remote,
+      sprite: Array.isArray(d.sprite) ? d.sprite : null,
+      mp,
+      src: d.source_url || "", author: d.author || "", license: d.license || "",
+      // colour features – filled in from the spritesheets
+      lum: 128, hue: 0, chroma: 0, rb: 0, bg: 0,
+      x: 0, y: 0, w: 1, h: 1, tx: 0, ty: 0, tw: 1, th: 1, sx: 0, sy: 0, sw: 1, sh: 1, wt: 1, _r: 0
+    });
+  });
+  return out;
+}
+
+/* Load the (few) atlas images in parallel; draw progressively; analyse colours as each lands */
+function loadSheets() {
+  const bySheet = [];
+  items.forEach(d => { if (d.sprite) (bySheet[d.sprite[0]] = bySheet[d.sprite[0]] || []).push(d); });
+  sheetTotal = bySheet.length;
+  if (!sheetTotal) { syncStatus(); return; }
+  for (let i = 0; i < sheetTotal; i++) {
+    const im = new Image();
+    im.decoding = "async";
+    const finish = ok => {
+      sheets[i] = { img: im, ok };
+      if (ok) analyzeSheet(i, bySheet[i] || []);
+      sheetDone++;
+      setProgress(0.15 + 0.85 * sheetDone / sheetTotal);
+      if (sheetDone === sheetTotal) {
+        featuresReady = !featuresFailed;
+        if (COLOR_MODES.has(activeSortMode)) { relayout(true); fit(false); }
+      }
+      syncStatus(); draw();
+    };
+    im.onload = () => (im.decode ? im.decode().catch(() => {}) : Promise.resolve()).then(() => finish(true));
+    im.onerror = () => finish(false);
+    im.src = SHEET_URL(i);
+  }
+}
+
+/* Per-tile colour statistics, read straight out of the atlas (one 512px read per sheet = 16 px per tile side) */
+function analyzeSheet(si, list) {
+  try {
+    const N = 512, S = N / ATLAS;
+    const c = document.createElement("canvas"); c.width = c.height = N;
+    const g = c.getContext("2d", { willReadFrequently: true });
+    g.imageSmoothingQuality = "high";
+    g.drawImage(sheets[si].img, 0, 0, N, N);
+    const px = g.getImageData(0, 0, N, N).data;
+    for (const d of list) {
+      const x0 = Math.round(d.sprite[1] * S), y0 = Math.round(d.sprite[2] * S);
+      const tw = Math.round(d.sprite[3] * S), th = Math.round(d.sprite[4] * S);
+      let r = 0, gg = 0, b = 0, ca = 0, cb = 0, ch = 0, n = 0;
+      for (let y = y0; y < y0 + th; y++) {
+        let o = (y * N + x0) * 4;
+        for (let x = 0; x < tw; x++, o += 4) {
+          const R = px[o], G = px[o + 1], B = px[o + 2];
+          r += R; gg += G; b += B;
+          ca += R - (G + B) / 2; cb += 0.8660254 * (G - B);       // hue vector, weighted by chroma
+          ch += Math.max(R, G, B) - Math.min(R, G, B); n++;
+        }
+      }
+      r /= n; gg /= n; b /= n; ch /= n;
+      d.lum = 0.2126 * r + 0.7152 * gg + 0.0722 * b;              // 0..255
+      d.chroma = ch;                                              // 0..255
+      d.hue = (Math.atan2(cb, ca) * 180 / Math.PI + 360) % 360;   // dominant hue, red = 0°
+      d.rb = (b - r) / (r + b + 8);                               // −1 (red) … +1 (blue)
+      d.bg = (gg - b) / (gg + b + 8);                             // −1 (blue) … +1 (green)
+    }
+  } catch (e) { featuresFailed = true; console.warn("Colour analysis unavailable:", e); }
+}
+
+/* ───────────────────────────── sorting ───────────────────────────── */
+const byTitle = (a, b) => a.title.localeCompare(b.title);
+const SORTS = {
+  category: (a, b) => ELEMENTS.indexOf(a.element) - ELEMENTS.indexOf(b.element)
+                   || a.typology.localeCompare(b.typology)
+                   || (a.materials[0] || "").localeCompare(b.materials[0] || "")
+                   || byTitle(a, b),
+  scale:       (a, b) => a.mp - b.mp || byTitle(a, b),
+  luminosity:  (a, b) => a.lum - b.lum || byTitle(a, b),
+  redToBlue:   (a, b) => a.rb - b.rb   || a.lum - b.lum,
+  blueToGreen: (a, b) => a.bg - b.bg   || a.lum - b.lum,
+  // neutrals (greys) first, dark → light, then the rainbow red → yellow → green → cyan → blue → magenta
+  hue: (a, b) => {
+    const na = a.chroma < 22, nb = b.chroma < 22;
+    if (na !== nb) return na ? -1 : 1;
+    return na ? a.lum - b.lum : a.hue - b.hue;
+  },
+  random: (a, b) => a._r - b._r
+};
+
+function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+/* Cell weight = how much of the screen an image earns. Driven by source resolution (percentile, squared) */
+function assignWeights() {
+  const known = items.filter(d => d.mp > 0).map(d => d.mp).sort((a, b) => a - b);
+  const median = known.length ? known[known.length >> 1] : 1;
+  const all = items.map(d => d.mp > 0 ? d.mp : median).sort((a, b) => a - b);
+  items.forEach(d => {
+    const v = d.mp > 0 ? d.mp : median;
+    let lo = 0, hi = all.length; while (lo < hi) { const m = (lo + hi) >> 1; if (all[m] < v) lo = m + 1; else hi = m; }
+    const p = all.length > 1 ? lo / (all.length - 1) : 0.5;
+    d.mp_eff = v;
+    d.wt = 1 + WEIGHT_RANGE * Math.pow(p, WEIGHT_EXP);
+  });
+}
+var WEIGHT_RANGE = 20, WEIGHT_EXP = 3;
+
+/* ─────────────────── FULL-SCREEN WEIGHTED QUADTREE (Hilbert-ordered) ───────────────────
+   • The viewport is split into a few near-square roots (e.g. 2 on a 16:9 screen).
+   • Each node is divided into 4 equal quadrants and its sorted items are cut into 4 consecutive runs of
+     (roughly) equal total weight → heavy images stop subdividing early and get big cells, light ones keep
+     subdividing into small cells. Every item is a leaf, the leaves tile the viewport exactly: no gaps, no overlap.
+   • Quadrants are visited in Hilbert order, so neighbours in the sort are neighbours on screen
+     (colour/size gradients flow continuously across the matrix).                                          */
+const CANON = [[0, 0], [0, 1], [1, 1], [1, 0]];
+const CHILD_T = [(x, y) => [y, x], (x, y) => [x, y], (x, y) => [x, y], (x, y) => [1 - y, 1 - x]];
+const IDENT = (x, y) => [x, y];
+
+function splitK(list, k) {
+  const n = list.length;
+  if (k === 1) return [list];
+  const pre = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) pre[i + 1] = pre[i] + list[i].wt;
+  const total = pre[n], out = [];
+  let prev = 0;
+  for (let c = 1; c < k; c++) {
+    const target = total * c / k, lo = prev + 1, hi = n - (k - c);
+    let b = lo;
+    while (b < hi && pre[b] < target) b++;
+    if (b > lo && target - pre[b - 1] < pre[b] - target) b--;
+    out.push(list.slice(prev, b)); prev = b;
+  }
+  out.push(list.slice(prev));
+  return out;
+}
+
+function placeNode(list, x, y, w, h, st) {
+  const n = list.length;
+  if (!n) return;
+  if (n === 1) { const d = list[0]; d.tx = x; d.ty = y; d.tw = w; d.th = h; return; }
+  const ar = w / h;
+  if (n >= 4 && ar > 0.7 && ar < 1.45) {
+    const parts = splitK(list, 4), hw = w / 2, hh = h / 2;
+    for (let k = 0; k < 4; k++) {
+      const [qx, qy] = st(CANON[k][0], CANON[k][1]);
+      const tk = CHILD_T[k];
+      placeNode(parts[k], x + qx * hw, y + qy * hh, hw, hh, (cx, cy) => { const t = tk(cx, cy); return st(t[0], t[1]); });
+    }
+  } else {                                        // 2–3 leftovers (or an odd root): halve along the long side
+    const parts = splitK(list, 2), [sx, sy] = st(0, 0);
+    if (w >= h) {
+      const hw = w / 2, firstLeft = sx === 0;
+      placeNode(parts[0], x + (firstLeft ? 0 : hw), y, hw, h, st);
+      placeNode(parts[1], x + (firstLeft ? hw : 0), y, hw, h, st);
+    } else {
+      const hh = h / 2, firstTop = sy === 0;
+      placeNode(parts[0], x, y + (firstTop ? 0 : hh), w, hh, st);
+      placeNode(parts[1], x, y + (firstTop ? hh : 0), w, hh, st);
+    }
+  }
+}
+
+function bestGrid(w, h) {                          // pick cols×1 or 1×rows so each root is as square as possible
+  let best = { cols: 1, rows: 1, e: Math.abs(Math.log(w / h)) };
+  for (let c = 2; c <= 8; c++) { const e = Math.abs(Math.log((w / c) / h)); if (e < best.e) best = { cols: c, rows: 1, e }; }
+  for (let r = 2; r <= 8; r++) { const e = Math.abs(Math.log(w / (h / r))); if (e < best.e) best = { cols: 1, rows: r, e }; }
+  return best;
+}
+
+function layoutFullScreenQuadtree(order) {
+  if (!order.length) return;
+  const g = bestGrid(W, H);
+  const k = Math.min(g.cols * g.rows, order.length);
+  const cols = k < g.cols * g.rows ? k : g.cols, rows = k < g.cols * g.rows ? 1 : g.rows;
+  const cw = W / cols, ch = H / rows;
+  splitK(order, cols * rows).forEach((part, i) => placeNode(part, (i % cols) * cw, Math.floor(i / cols) * ch, cw, ch, IDENT));
+}
+
+function relayout(animate) {
+  if (!items.length) return;
+  const order = items.slice();
+  if (activeSortMode === "random") { const rnd = mulberry32(randSeed * 7919); items.forEach(d => d._r = rnd()); }
+  order.sort(SORTS[activeSortMode] || SORTS.category);
+  layoutFullScreenQuadtree(order);
+  if (animate) {
+    items.forEach(d => { d.sx = d.x; d.sy = d.y; d.sw = d.w; d.sh = d.h; });
+    layoutAnim = { t0: performance.now(), dur: 750 };
+  } else {
+    items.forEach(d => { d.x = d.tx; d.y = d.ty; d.w = d.tw; d.h = d.th; });
+    layoutAnim = null;
+  }
+  draw();
+}
+
+/* ───────────────────────────── view fitting ───────────────────────────── */
+function fit(instant) {
+  const act = filtering() ? items.filter(lit) : null;
+  let t;
+  if (!act || !act.length) t = { x: 0, y: 0, k: 1 };           // matrix already covers the screen exactly
+  else {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const n of act) { x0 = Math.min(x0, n.tx); y0 = Math.min(y0, n.ty); x1 = Math.max(x1, n.tx + n.tw); y1 = Math.max(y1, n.ty + n.th); }
+    const lm = W > 900 ? 250 : 20, rm = W > 900 ? 250 : 20, tm = 60, bm = 90;
+    const aw = W - lm - rm, ah = H - tm - bm;
+    const k = Math.min(aw / Math.max(1, x1 - x0), ah / Math.max(1, y1 - y0), 8);
+    t = { k, x: lm + aw / 2 - k * (x0 + x1) / 2, y: tm + ah / 2 - k * (y0 + y1) / 2 };
+  }
+  if (instant) { Object.assign(T, t); tween = null; draw(); } else animateTo(t, 750);
+}
+
+/* ───────────────────────────── build ───────────────────────────── */
+function build(dataItems) {
+  resize();
+  items = dataItems;
+  assignWeights();
+  relayout(false);
+
+  const kwMap = new Map();
+  nodes = [];
+  const kw = (label, type) => {
+    if (!label) return null;
+    const k = type + label;
+    if (!kwMap.has(k)) { const n = { id: "K_" + k, kind: "kw", type, label, count: 0, el: {} }; kwMap.set(k, n); nodes.push(n); }
+    const node = kwMap.get(k); node.count++; return node;
+  };
+  items.forEach(d => {
+    d.kind = "item"; d.kws = [];
+    if (d.typology) d.kws.push(kw(d.typology, "typology"));
+    d.materials.forEach(m => { if (m) d.kws.push(kw(m, "material")); });
+    d.kws = d.kws.filter(Boolean);
+    d.kws.forEach(k => { k.el[d.element] = (k.el[d.element] || 0) + 1; });
+  });
+  nodes.forEach(n => { n.element = Object.keys(n.el).sort((a, b) => n.el[b] - n.el[a])[0] || "Earth"; });
+
+  recompute();
+  fit(true);
+  buildUI(items);
+  syncUI();
+}
+
+function itemMatch(d) {
+  if (filter.element && d.element !== filter.element) return false;
+  if (filter.kw.size > 0 && !d.kws.some(k => filter.kw.has(k))) return false;
+  return true;
+}
+
+let emptyResult = false;
+const filtering = () => !emptyResult && (filter.element || filter.kw.size > 0);
+const lit = n => filtering() ? n._lit : true;
+
+function recompute() {
+  const ks = new Set(); let cnt = 0;
+  items.forEach(n => { n._lit = itemMatch(n); if (n._lit) { cnt++; n.kws.forEach(k => ks.add(k)); } });
+  filter.kw.forEach(k => ks.add(k));
+  nodes.forEach(n => { if (n.kind === "kw") n._lit = ks.has(n); });
+  emptyResult = cnt === 0; return cnt;
+}
+
+function resize() {
+  W = innerWidth; H = innerHeight;
+  canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+}
+
+/* ───────────────────────────── full-res on demand (LOD) ───────────────────────────── */
+const HUGE_MP = 60e6;                       // never decode originals above ~60 megapixels for LOD/hover
+const fullCache = [];
+let lodActive = 0;
+function loadFull(d) {
+  if (d._fp) return d._fp;
+  d._fp = new Promise(res => {
+    const urls = [d.local, d.remote].filter(Boolean);
+    if (!urls.length) { d._fullFail = true; return res(null); }
+    let i = 0; const im = new Image();
+    im.onload = () => { d._full = im; fullCache.push(d); while (fullCache.length > 16) { const o = fullCache.shift(); if (o !== hover) { o._full = null; o._fp = null; } } res(im); };
+    im.onerror = () => { if (++i < urls.length) im.src = urls[i]; else { d._fullFail = true; res(null); } };
+    im.src = urls[0];
+  });
+  return d._fp;
+}
+
+/* cover-crop helper: source rect inside (iw×ih) that matches the aspect of the destination cell */
+function cover(iw, ih, a) {
+  const ia = iw / ih;
+  if (ia > a) { const sw = ih * a; return [(iw - sw) / 2, 0, sw, ih]; }
+  const sh = iw / a; return [0, (ih - sh) / 2, iw, sh];
+}
+
+/* ───────────────────────────── render ───────────────────────────── */
+function render() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!items.length) return;
+  ctx.setTransform(DPR * T.k, 0, 0, DPR * T.k, DPR * T.x, DPR * T.y);
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+
+  const f = filtering();
+  const vx0 = -T.x / T.k, vy0 = -T.y / T.k, vx1 = (W - T.x) / T.k, vy1 = (H - T.y) / T.k;
+  const ins = 0.5 / T.k;                              // hairline gap between cells (constant on screen)
+  const dimA = 0.10;
+  let curA = -1;
+  const labelQ = [];
+
+  for (let i = 0; i < items.length; i++) {
+    const n = items[i];
+    if (n.x > vx1 || n.y > vy1 || n.x + n.w < vx0 || n.y + n.h < vy0) continue;
+    const on = lit(n);
+    const a = on ? 1 : dimA;
+    if (a !== curA) { ctx.globalAlpha = a; curA = a; }
+    const dx = n.x + ins, dy = n.y + ins, dw = n.w - 2 * ins, dh = n.h - 2 * ins;
+    const ar = dw / dh;
+    let drawn = false;
+
+    // deep zoom → swap the 128px sprite for the real image (loaded lazily)
+    if (on && Math.max(n.w, n.h) * T.k > 260 && !n._fullFail && n.mp < HUGE_MP) {
+      if (n._full) {
+        const s = cover(n._full.naturalWidth, n._full.naturalHeight, ar);
+        ctx.drawImage(n._full, s[0], s[1], s[2], s[3], dx, dy, dw, dh); drawn = true;
+      } else if (!n._fp && lodActive < 3) { lodActive++; loadFull(n).then(() => { lodActive--; draw(); }); }
+    }
+    if (!drawn) {
+      const sp = n.sprite, sh = sp && sheets[sp[0]];
+      if (sh && sh.ok) {
+        const s = cover(sp[3] - 1, sp[4] - 1, ar);          // inset 0.5px so neighbouring atlas tiles never bleed in
+        ctx.drawImage(sh.img, sp[1] + 0.5 + s[0], sp[2] + 0.5 + s[1], s[2], s[3], dx, dy, dw, dh);
+      } else { ctx.fillStyle = "#11161b"; ctx.fillRect(dx, dy, dw, dh); }
+    }
+    if (showNames && on) labelQ.push(n);
+  }
+  ctx.globalAlpha = 1;
+
+  if (showNames) drawLabels(labelQ);
+
+  // pinned + hover outlines
+  ctx.lineWidth = 1.5 / T.k;
+  ctx.strokeStyle = "#ffffff";
+  for (const p of pinned) ctx.strokeRect(p.x + ins, p.y + ins, p.w - 2 * ins, p.h - 2 * ins);
+  if (hover && lit(hover)) { ctx.lineWidth = 2.5 / T.k; ctx.strokeStyle = "#6fd6ce"; ctx.strokeRect(hover.x + ins, hover.y + ins, hover.w - 2 * ins, hover.h - 2 * ins); }
+}
+
+/* Image names, printed inside each cell. Text size follows the cell: tiny cells get tiny (still real) text,
+   zoom in and the same labels become readable. */
+function drawLabels(list) {
+  ctx.textBaseline = "top";
+  let lastFont = "";
+  for (const n of list) {
+    const sw = n.w * T.k, sh = n.h * T.k;
+    if (sw < 22 || sh < 14) continue;
+    const fs = Math.max(5, Math.min(12, sw / 10));                  // screen px
+    const pad = 2.5, charW = fs * 0.62, lineH = fs * 1.2;
+    const cpl = Math.floor((sw - 2 * pad) / charW);
+    const maxLines = Math.min(5, Math.floor((sh * 0.6 - pad) / lineH));
+    if (cpl < 4 || maxLines < 1) continue;
+    const key = cpl * 10 + maxLines;
+    if (n._lk !== key) { n._ll = wrap(n.label, cpl, maxLines); n._lk = key; }
+    const lines = n._ll, bandH = lines.length * lineH + pad * 1.5;
+    const k = 1 / T.k;
+    const x = n.x, y = n.y + n.h - bandH * k;
+    ctx.fillStyle = "rgba(0,0,0,0.66)";
+    ctx.fillRect(x, y, n.w, bandH * k);
+    const font = `${(fs * k).toFixed(4)}px ${MONO}`;
+    if (font !== lastFont) { ctx.font = font; lastFont = font; }
+    ctx.fillStyle = "#9bff8f";
+    for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], x + pad * k, y + (pad * 0.75 + i * lineH) * k);
+  }
+}
+
+function wrap(text, cpl, maxLines) {
+  const words = text.split(/\s+/), lines = []; let cur = "";
+  const push = () => { if (cur) lines.push(cur); cur = ""; };
+  for (let w of words) {
+    while (w.length > cpl) { if (cur) push(); lines.push(w.slice(0, cpl)); w = w.slice(cpl); if (lines.length >= maxLines) break; }
+    if (lines.length >= maxLines) break;
+    if (!cur) cur = w; else if (cur.length + 1 + w.length <= cpl) cur += " " + w; else { push(); cur = w; }
+    if (lines.length >= maxLines) break;
+  }
+  push();
+  if (lines.length > maxLines || (lines.length === maxLines && words.join(" ").length > lines.join(" ").length + 1)) {
+    lines.length = maxLines;
+    const l = lines[maxLines - 1]; lines[maxLines - 1] = (l.length >= cpl ? l.slice(0, cpl - 1) : l) + "…";
+  }
+  return lines;
+}
+
+/* ───────────────────────────── interaction ───────────────────────────── */
+function pick(cx, cy) {
+  const x = (cx - T.x) / T.k, y = (cy - T.y) / T.k;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const n = items[i];
+    if (lit(n) && x >= n.x && x <= n.x + n.w && y >= n.y && y <= n.y + n.h) return n;
+  }
+  return null;
+}
+
+const ptrs = new Map();
+let drag = null, pinch = null, hoverTimer = 0;
+const preview = document.getElementById("hoverPreview");
+
+canvas.addEventListener("pointerdown", e => {
+  canvas.setPointerCapture(e.pointerId);
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  tween = null; hidePreview();
+  if (ptrs.size === 1) drag = { sx: e.clientX, sy: e.clientY, tx: T.x, ty: T.y, moved: false };
+  else if (ptrs.size === 2) {
+    const [a, b] = [...ptrs.values()];
+    pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), k: T.k, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, tx: T.x, ty: T.y };
+    drag = null;
+  }
+});
+
+canvas.addEventListener("pointermove", e => {
+  if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch && ptrs.size >= 2) {
+    const [a, b] = [...ptrs.values()];
+    const k = clampK(pinch.k * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d);
+    const r = k / pinch.k, cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+    T.k = k; T.x = cx - (pinch.cx - pinch.tx) * r; T.y = cy - (pinch.cy - pinch.ty) * r;
+    draw(); return;
+  }
+  if (drag) {
+    const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+    if (!drag.moved && Math.hypot(dx, dy) > 4) { drag.moved = true; canvas.classList.add("dragging"); }
+    if (drag.moved) { T.x = drag.tx + dx; T.y = drag.ty + dy; draw(); }
+    return;
+  }
+  if (e.pointerType === "mouse") setHover(pick(e.clientX, e.clientY), e);
+});
+
+function endPtr(e) {
+  const wasDrag = drag, hadPinch = pinch;
+  ptrs.delete(e.pointerId);
+  if (ptrs.size < 2) pinch = null;
+  if (ptrs.size === 0) {
+    canvas.classList.remove("dragging");
+    if (wasDrag && !wasDrag.moved && !hadPinch && e.type === "pointerup") { const n = pick(e.clientX, e.clientY); if (n) pinItem(n); }
+    drag = null;
+  }
+}
+canvas.addEventListener("pointerup", endPtr);
+canvas.addEventListener("pointercancel", endPtr);
+canvas.addEventListener("pointerleave", () => { if (!drag) setHover(null); });
+
+const clampK = k => Math.max(0.35, Math.min(24, k));
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  tween = null;
+  const k = clampK(T.k * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)));
+  const r = k / T.k;
+  T.x = e.clientX - (e.clientX - T.x) * r; T.y = e.clientY - (e.clientY - T.y) * r; T.k = k;
+  hidePreview(); draw();
+}, { passive: false });
+
+function setHover(n, e) {
+  if (n !== hover) {
+    hover = n;
+    canvas.classList.toggle("hover", !!n);
+    clearTimeout(hoverTimer);
+    const img = document.getElementById("hoverImg"); img.classList.remove("ready");
+    if (n) {
+      const sp = n.sprite, s = 240 / 128;
+      const pv = document.getElementById("pvSprite");
+      if (sp) { pv.style.backgroundImage = `url(${SHEET_URL(sp[0])})`; pv.style.backgroundSize = `${ATLAS * s}px ${ATLAS * s}px`; pv.style.backgroundPosition = `${-sp[1] * s}px ${-(sp[2] * s + 40)}px`; }
+      else pv.style.backgroundImage = "none";
+      document.getElementById("hoverTitle").textContent = n.title;
+      hoverTimer = n.mp >= HUGE_MP ? 0 : setTimeout(() => loadFull(n).then(im => { if (hover === n && im) { img.src = im.src; img.classList.add("ready"); } }), 200);
+    }
+    draw();
+  }
+  if (hover && e) {
+    preview.style.left = Math.min(e.clientX + 18, W - 250) + "px";
+    preview.style.top = Math.min(e.clientY + 18, H - 215) + "px";
+    preview.classList.add("show");
+  } else if (!hover) preview.classList.remove("show");
+}
+function hidePreview() { preview.classList.remove("show"); if (hover) { hover = null; canvas.classList.remove("hover"); clearTimeout(hoverTimer); } }
+
+/* ───────────────────────────── controls ───────────────────────────── */
+document.getElementById("modalClose").onclick = () => hideFullModal();
+document.getElementById("fullModal").onclick = (e) => { if (e.target.id === "fullModal") hideFullModal(); };
+
+function setBoard(open) {
+  boardOpen = open;
+  const mb = document.getElementById("moodboard"), btn = document.getElementById("toggleBoardBtn");
+  mb.classList.toggle("open", open);
+  btn.classList.toggle("active", open);
+  btn.setAttribute("aria-pressed", open);
+}
+document.getElementById("toggleBoardBtn").onclick = () => setBoard(!boardOpen);
+document.getElementById("closeBoard").onclick = () => setBoard(false);
+document.getElementById("clearBoard").onclick = () => { pinned.splice(0, pinned.length); renderBoard(); draw(); };
+
+document.querySelectorAll(".mode-btn").forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll(".mode-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    activeSortMode = btn.dataset.mode;
+    if (activeSortMode === "random") randSeed++;
+    relayout(true); fit(false); syncStatus();
+  };
+});
+
+document.getElementById("toggleNames").onclick = (e) => {
+  showNames = !showNames;
+  e.currentTarget.classList.toggle("active", showNames);
+  e.currentTarget.setAttribute("aria-pressed", showNames);
+  e.currentTarget.textContent = showNames ? "Names: On" : "Names: Off";
+  draw();
+};
+
+const curtain = document.getElementById("blurCurtain");
+addEventListener("pointermove", e => {
+  if (!blurFocusActive || e.pointerType === "touch") return;
+  curtain.style.setProperty("--mx", e.clientX + "px"); curtain.style.setProperty("--my", e.clientY + "px");
+});
+document.getElementById("toggleBlur").onclick = () => {
+  blurFocusActive = !blurFocusActive;
+  document.getElementById("toggleBlur").classList.toggle("active", blurFocusActive);
+  document.getElementById("blurCurtain").classList.toggle("active", blurFocusActive);
+  draw();
+};
+
+document.getElementById("toggleVibrancy").onclick = () => {
+  vibrancyBoost = !vibrancyBoost;
+  document.getElementById("toggleVibrancy").classList.toggle("active", vibrancyBoost);
+  canvas.style.filter = vibrancyBoost ? "saturate(1.35) contrast(1.08)" : "none";   // GPU-side, not per-image
+};
+
+function pinItem(d) {
+  const existing = pinned.findIndex(x => x.id === d.id);
+  if (existing >= 0) {
+    pinned.splice(existing, 1);
+  } else {
+    setBoard(true);
+    if (pinned.length >= 6) pinned.shift();
+    let catTag = activeCategoryName;
+    if (!catTag || catTag === "General") {
+      catTag = filter.kw.size > 0 ? Array.from(filter.kw)[0].label : (filter.element || d.typology || d.element);
+    }
+    d._pinnedCategory = catTag;
+    pinned.push(d);
+  }
+  selected = d; showFullModal(d); renderBoard(); draw();
+}
+
+/* <img> that tries the local file first, then the remote URL */
+function setFullSrc(el, d) {
+  el.onerror = () => { if (d.remote && !el._fb && el.src.indexOf(d.remote) < 0) { el._fb = true; el.src = d.remote; } else el.style.visibility = "hidden"; };
+  el.onload = () => { el.style.visibility = "visible"; };
+  el._fb = false; el.style.visibility = "visible"; el.src = d.img;
+}
+
+function renderBoard() {
+  const grid = document.getElementById("boardGrid"); grid.innerHTML = "";
+  document.getElementById("boardEmpty").style.display = pinned.length ? "none" : "block";
+  document.getElementById("toggleBoardBtn").textContent = pinned.length ? `Moodboard (${pinned.length})` : "Moodboard";
+  pinned.forEach(d => {
+    const tile = document.createElement("div"); tile.className = "board-tile";
+    const badge = document.createElement("span"); badge.className = "tile-badge"; badge.textContent = d._pinnedCategory || d.element;
+    if (d.sprite) {                                  // sprite thumbnail underneath = never an empty tile
+      const sp = d.sprite, k = 2.6;
+      tile.style.backgroundImage = `url(${SHEET_URL(sp[0])})`; tile.style.backgroundRepeat = "no-repeat";
+      tile.style.backgroundSize = `${ATLAS * k}px ${ATLAS * k}px`; tile.style.backgroundPosition = `${-sp[1] * k}px ${-(sp[2] * k + 60)}px`;
+    }
+    const im = document.createElement("img"); im.alt = ""; setFullSrc(im, d);
+    const title = document.createElement("span"); title.className = "tile-title"; title.textContent = d.title;
+    const remove = document.createElement("button"); remove.className = "remove"; remove.type = "button"; remove.textContent = "×";
+    remove.onclick = (e) => { e.stopPropagation(); const i = pinned.findIndex(x => x.id === d.id); if (i >= 0) pinned.splice(i, 1); renderBoard(); draw(); };
+    tile.append(badge, im, title, remove); grid.appendChild(tile);
+  });
+}
+
+document.getElementById("reset").onclick = () => {
+  filter.element = null; filter.kw.clear();
+  selected = null; activeCategoryName = "General";
+  hideFullModal(); hidePreview();
+  syncUI(); fit(); draw();
+};
+
+
+let rzT = 0;
+addEventListener("resize", () => {
+  clearTimeout(rzT);
+  rzT = setTimeout(() => { resize(); relayout(false); fit(true); }, 120);
+});
+
+function toggleKw(k) {
+  if (filter.kw.has(k)) {
+    filter.kw.delete(k);
+    activeCategoryName = filter.kw.size > 0 ? Array.from(filter.kw)[0].label : "General";
+  } else {
+    filter.element = null;
+    filter.kw.add(k); activeCategoryName = k.label;
+  }
+  syncUI(); fit(); draw();
+}
+
+function showFullModal(d) {
+  const modal = document.getElementById("fullModal");
+  modal.classList.add("show");
+  const im = document.getElementById("mImg"); setFullSrc(im, d); im.alt = d.title;
+  document.getElementById("mTitle").textContent = d.title;
+  document.getElementById("mMeta").innerHTML = `<span style="color:${COLORS[d.element]}">${d.element}</span>${d.era ? " · " + d.era : ""}`;
+  const tags = document.getElementById("mTags"); tags.innerHTML = "";
+  d.kws.forEach(k => { const s = document.createElement("span"); s.textContent = k.label; s.onclick = () => { hideFullModal(); toggleKw(k); }; tags.appendChild(s); });
+  document.getElementById("mDesc").textContent = d.desc;
+  const credit = [d.author, d.license].filter(Boolean).join(" · ");
+  document.getElementById("mSrc").innerHTML = (d.src ? `<a href="${d.src}" target="_blank" rel="noopener" style="color:var(--teal)">Source Record</a>` : "") + (credit ? ` &mdash; ${credit}` : "");
+}
+
+function hideFullModal() {
+  document.getElementById("fullModal").classList.remove("show");
+}
+
+function buildUI(items) {
+  const list = (id, type, title) => {
+    const el = document.getElementById(id);
+    el.innerHTML = `<h3><span>${title}</span><svg class="arrow-icon" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg></h3><div class="list-content"></div>`;
+    el.querySelector('h3').onclick = () => el.classList.toggle('collapsed');
+    
+    const content = el.querySelector('.list-content');
+    const kws = nodes.filter(n => n.kind === "kw" && n.type === type && n.count > 0);
+    const grouped = {};
+    kws.forEach(k => { if (!grouped[k.element]) grouped[k.element] = []; grouped[k.element].push(k); });
+    
+    ELEMENTS.forEach(e => {
+      if (!grouped[e] || !grouped[e].length) return;
+      const subGroup = document.createElement("div"); subGroup.className = "sub-group";
+      const subHead = document.createElement("div"); subHead.className = "sub-header";
+      subHead.innerHTML = `<span>${e}</span><svg class="arrow-icon" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
+      subHead.onclick = () => subGroup.classList.toggle("collapsed");
+      
+      const subItems = document.createElement("div"); subItems.className = "sub-items";
+      grouped[e].sort((a,b) => b.count - a.count).forEach(k => {
+        const b = document.createElement("button"); b.className = "kw"; b.style.setProperty('--kw-color', COLORS[e]);
+        b.innerHTML = `<span>${k.label}</span><i>${k.count}</i>`; b._k = k; b.onclick = (event) => { event.stopPropagation(); toggleKw(k); };
+        subItems.appendChild(b);
+      });
+      subGroup.appendChild(subHead); subGroup.appendChild(subItems); content.appendChild(subGroup);
+    });
+  };
+  list("left", "typology", "Typologies"); list("right", "material", "Materials");
+}
+
+function syncStatus() {
+  const n = recompute();
+  let s = emptyResult ? "0 matching images · press Reset" : filtering() ? `${n} matching images` : `${items.length} images · Quadtree Matrix`;
+  if (sheetDone < sheetTotal) s += ` · loading spritesheets ${sheetDone}/${sheetTotal}`;
+  else if (COLOR_MODES.has(activeSortMode) && featuresFailed) s += " · colour data unavailable (serve sheets from the same origin)";
+  document.getElementById("count").textContent = s;
+}
+function syncUI() {
+  document.querySelectorAll(".kw").forEach(b => b.classList.toggle("on", filter.kw.has(b._k)));
+  syncStatus();
+}
+</script>
+</body>
+</html>
