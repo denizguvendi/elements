@@ -6,11 +6,11 @@
 <title>Denmark Elements Pavilion — Dynamic Spatial Quadtree Matrix</title>
 <style>
   :root {
-    --bg: #000000; --ink: #e9edf0; --dim: #a4b1bd;
-    --red: #ff6b58; --teal: #6fd6ce;
-    --earth: #d36bd4; --water: #54c9e8; --fire: #ff6b58; --air: #72c9a5;
+    --bg: #fdfcfc; --ink: #fffefea2; --dim: #afafaf;
+    --red: #ff6b58; --teal: #f70707c2;
+    --earth: #d36bd4; --water: #54c9e8; --fire: #ff6b58; --air: #adcfc181;
     --font: "Helvetica Neue", Helvetica, Arial, sans-serif;
-    --shadow: 0 1px 3px rgba(0,0,0,.95), 0 0 8px rgba(0,0,0,.8);
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 0 8px rgba(255, 255, 255, 0.8);
   }
   * { box-sizing: border-box; border: none !important; outline: none !important; box-shadow: none !important; }
   html, body { margin: 0; height: 100%; background: #000000; color: var(--ink); font-family: var(--font); overflow: hidden; }
@@ -172,11 +172,11 @@
 </head>
 <body>
 <div id="prog"></div>
-<canvas id="c" aria-label="Denmark Architecture Full Screen Quadtree Canvas"></canvas>
+<canvas id="c" aria-label="Elements DK"></canvas>
 <div class="blur-curtain" id="blurCurtain"></div>
 <div class="scrim l"></div><div class="scrim r"></div>
 
-<div class="tl" id="tl"><b>Constellation dataset</b><br><span id="count">Loading…</span></div>
+<div class="tl" id="tl"><b>dataset</b><br><span id="count">Loading…</span></div>
 
 <div class="left-lists">
   <nav class="list" id="left" aria-label="Typologies"></nav>
@@ -186,7 +186,7 @@
 </div>
 
 <div class="bar" id="bar">
-  <div class="mode-group" aria-label="Quadtree Sorting Mode">
+  <div class="mode-group" aria-label="Sorting Mode">
     <button class="mode-btn active" data-mode="category">Categories</button>
     <button class="mode-btn" data-mode="scale">Scale</button>
     <button class="mode-btn" data-mode="luminosity">Luminosity</button>
@@ -969,7 +969,7 @@ function buildUI(items) {
 
 function syncStatus() {
   const n = recompute();
-  let s = emptyResult ? "0 matching images · press Reset" : filtering() ? `${n} matching images` : `${items.length} images · Quadtree Matrix`;
+  let s = emptyResult ? "0 matching images · press Reset" : filtering() ? `${n} matching images` : `${items.length} images · datascraped from wikicommons`;
   if (sheetDone < sheetTotal) s += ` · loading spritesheets ${sheetDone}/${sheetTotal}`;
   else if (COLOR_MODES.has(activeSortMode) && featuresFailed) s += " · colour data unavailable (serve sheets from the same origin)";
   document.getElementById("count").textContent = s;
